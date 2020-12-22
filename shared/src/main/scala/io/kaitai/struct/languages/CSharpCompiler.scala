@@ -58,6 +58,9 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts(s"{")
     out.inc
 
+    out.puts(s"public Tracer M_Tracer;")
+    out.puts
+
     // `FromFile` is generated only for parameterless types
     if (typeProvider.nowClass.params.isEmpty) {
       out.puts(s"public static ${type2class(name)} FromFile(string fileName)")
@@ -94,10 +97,13 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
       s"public ${type2class(name)}($paramsArg" +
         s"$kstreamName $pIo, " +
         s"${kaitaiType2NativeType(parentType)} $pParent = null, " +
-        s"${type2class(rootClassName)} $pRoot = null$addEndian) : base($pIo)"
+        s"${type2class(rootClassName)} $pRoot = null$addEndian, " +
+        s"Tracer tracer = null) : base($pIo)"
     )
     out.puts(s"{")
     out.inc
+    out.puts(s"M_Tracer = tracer;")
+    out.puts(s"var entityName = nameof(${type2class(name)});")
     handleAssignmentSimple(ParentIdentifier, pParent)
 
     handleAssignmentSimple(
@@ -114,8 +120,11 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   override def classConstructorFooter: Unit = fileFooter(null)
 
-  override def runRead(name: List[String]): Unit =
+  override def runRead(name: List[String]): Unit = {
+    out.puts("M_Tracer.BeginRead(entityName, this, p__io, p__parent, p__root);")
     out.puts("_read();")
+    out.puts("M_Tracer.EndRead();")
+  }
 
   override def runReadCalc(): Unit = {
     out.puts
@@ -291,7 +300,9 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   }
 
   override def handleAssignmentRepeatEos(id: Identifier, expr: String): Unit = {
+    out.puts(s"M_Tracer.BeginArrayMember(nameof(${publicMemberName(id)}));")
     out.puts(s"${privateMemberName(id)}.Add($expr);")
+    out.puts(s"M_Tracer.EndArrayMember();")
   }
 
   override def condRepeatEosFooter: Unit = {
@@ -316,7 +327,9 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   }
 
   override def handleAssignmentRepeatExpr(id: Identifier, expr: String): Unit = {
+    out.puts(s"M_Tracer.BeginArrayMember(nameof(${publicMemberName(id)}));")
     out.puts(s"${privateMemberName(id)}.Add($expr);")
+    out.puts(s"M_Tracer.EndArrayMember();")
   }
 
   override def condRepeatExprFooter: Unit = fileFooter(null)
@@ -343,8 +356,10 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     } else {
       ("", translator.doName(Identifier.ITERATOR))
     }
+    out.puts(s"M_Tracer.BeginArrayMember(nameof(${publicMemberName(id)}));")
     out.puts(s"$typeDecl$tempVar = $expr;")
     out.puts(s"${privateMemberName(id)}.Add($tempVar);")
+    out.puts(s"M_Tracer.EndArrayMember();")
   }
 
   override def condRepeatUntilFooter(id: Identifier, io: String, dataType: DataType, needRaw: NeedRaw, untilExpr: expr): Unit = {
@@ -356,8 +371,20 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     out.puts("}")
   }
 
-  override def handleAssignmentSimple(id: Identifier, expr: String): Unit =
+  override def handleAssignmentSimple(id: Identifier, expr: String): Unit = {
+    val inject = (
+      privateMemberName(id) != "m_parent" && 
+      privateMemberName(id) != "m_root" && 
+      !privateMemberName(id).startsWith("__raw_")
+    )
+    if (inject) {
+      out.puts(s"M_Tracer.BeginMember(nameof(${publicMemberName(id)}));")
+    }
     out.puts(s"${privateMemberName(id)} = $expr;")
+    if (inject) {
+      out.puts(s"M_Tracer.EndMember();")
+    }
+  }
 
   override def handleAssignmentTempVar(dataType: DataType, id: String, expr: String): Unit =
     out.puts(s"${kaitaiType2NativeType(dataType)} $id = $expr;")
@@ -401,7 +428,7 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
           }
           s", $parent, ${privateMemberName(RootIdentifier)}$addEndian"
         }
-        s"new ${types2class(t.name)}($addParams$io$addArgs)"
+        s"new ${types2class(t.name)}($addParams$io$addArgs, tracer: M_Tracer)"
     }
   }
 
@@ -435,8 +462,10 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   val NAME_SWITCH_ON = Ast.expr.Name(Ast.identifier(Identifier.SWITCH_ON))
 
-  override def switchStart(id: Identifier, on: Ast.expr): Unit =
+  override def switchStart(id: Identifier, on: Ast.expr): Unit = {
+    out.puts(s"M_Tracer.SwitchStart();")
     out.puts(s"switch (${expression(on)}) {")
+  }
 
   override def switchCaseFirstStart(condition: Ast.expr): Unit = switchCaseStart(condition)
 
