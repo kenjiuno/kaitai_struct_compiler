@@ -240,6 +240,7 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
     }
 
     out.puts(s"var $ioName = new $kstreamName($args);")
+    out.puts(s"M_Tracer.DeclareNewIo();")
     ioName
   }
 
@@ -259,8 +260,10 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
   override def pushPos(io: String): Unit =
     out.puts(s"long _pos = $io.Pos;")
 
-  override def seek(io: String, pos: Ast.expr): Unit =
+  override def seek(io: String, pos: Ast.expr): Unit = {
     out.puts(s"$io.Seek(${expression(pos)});")
+    out.puts(s"M_Tracer.Seek(${expression(pos)});");
+  }
 
   override def popPos(io: String): Unit =
     out.puts(s"$io.Seek(_pos);")
@@ -462,10 +465,8 @@ class CSharpCompiler(typeProvider: ClassTypeProvider, config: RuntimeConfig)
 
   val NAME_SWITCH_ON = Ast.expr.Name(Ast.identifier(Identifier.SWITCH_ON))
 
-  override def switchStart(id: Identifier, on: Ast.expr): Unit = {
-    out.puts(s"M_Tracer.SwitchStart();")
+  override def switchStart(id: Identifier, on: Ast.expr): Unit =
     out.puts(s"switch (${expression(on)}) {")
-  }
 
   override def switchCaseFirstStart(condition: Ast.expr): Unit = switchCaseStart(condition)
 
